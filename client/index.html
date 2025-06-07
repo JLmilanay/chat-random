@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatroulette Clone</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="mode-selector">
+            <button id="videoMode" class="mode-btn active">
+                <i class="fas fa-video"></i> Video
+            </button>
+            <button id="voiceMode" class="mode-btn">
+                <i class="fas fa-microphone"></i> Voice
+            </button>
+            <button id="textMode" class="mode-btn">
+                <i class="fas fa-comments"></i> Text
+            </button>
+        </div>
+
+        <div class="main-content">
+            <div class="video-container">
+                <div class="video-wrapper">
+                    <video id="localVideo" autoplay muted playsinline></video>
+                    <div class="video-overlay">
+                        <span class="video-label">You</span>
+                        <button id="toggleVideo" class="control-btn">
+                            <i class="fas fa-video"></i>
+                        </button>
+                        <button id="toggleAudio" class="control-btn">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="video-wrapper">
+                    <video id="remoteVideo" autoplay playsinline></video>
+                    <div class="video-overlay">
+                        <span class="video-label">Partner</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages"></div>
+                <div class="chat-input-container">
+                    <input type="text" id="chatInput" placeholder="Type a message..." disabled>
+                    <button id="sendMessage" class="btn" disabled>
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="startButton" class="btn">
+                <i class="fas fa-play"></i> Start Chat
+            </button>
+            <button id="nextButton" class="btn" disabled>
+                <i class="fas fa-random"></i> Next
+            </button>
+            <button id="reportButton" class="btn danger" disabled>
+                <i class="fas fa-flag"></i> Report
+            </button>
+        </div>
+
+        <div class="status">
+            <p id="statusMessage">Click "Start Chat" to begin</p>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html> 

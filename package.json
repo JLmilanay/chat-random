@@ -1,0 +1,26 @@
+{
+  "name": "chatroulette-clone",
+  "version": "1.0.0",
+  "description": "A Chatroulette-style web application for random video chat",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js",
+    "test": "mocha test/**/*.test.js --exit",
+    "test:watch": "mocha test/**/*.test.js --watch"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "mongoose": "^7.5.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "chai": "^4.3.7",
+    "mocha": "^10.2.0",
+    "socket.io-client": "^4.7.2",
+    "jsdom": "^22.1.0"
+  }
+} 
