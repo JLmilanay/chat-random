@@ -8,11 +8,13 @@ const app = express();
 const server = http.createServer(app);
 
 // Configure CORS for Vercel deployment
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+    ? ['https://chat-random.vercel.app', 'https://*.vercel.app']
+    : ['http://localhost:3000', 'http://localhost:5000'];
+
 const io = socketIO(server, {
     cors: {
-        origin: process.env.NODE_ENV === 'production' 
-            ? ['https://your-app-name.vercel.app', 'https://*.vercel.app']
-            : '*',
+        origin: allowedOrigins,
         methods: ["GET", "POST"],
         credentials: true
     },
@@ -21,11 +23,12 @@ const io = socketIO(server, {
 
 // Middleware
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production'
-        ? ['https://your-app-name.vercel.app', 'https://*.vercel.app']
-        : '*',
+    origin: allowedOrigins,
     credentials: true
 }));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
@@ -43,6 +46,12 @@ const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const MAX_REPORTS = 5;
 const MAX_MESSAGES_PER_MINUTE = 30;
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Something went wrong!' });
+});
+
 // Socket.IO connection handling
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -55,168 +64,235 @@ io.on('connection', (socket) => {
 
     // Add user to waiting queue
     socket.on('join', ({ mode }) => {
-        if (!isRateLimited(socket.id)) {
-            waitingUsers.set(socket.id, mode || 'video');
-            matchUsers();
+        try {
+            if (!isRateLimited(socket.id)) {
+                waitingUsers.set(socket.id, mode || 'video');
+                matchUsers();
+            }
+        } catch (error) {
+            console.error('Error in join:', error);
+            socket.emit('error', { message: 'Failed to join queue' });
         }
     });
 
     // Handle WebRTC signaling
     socket.on('offer', (data) => {
-        if (activeConnections.has(socket.id)) {
-            io.to(data.target).emit('offer', {
-                offer: data.offer,
-                sender: socket.id
-            });
+        try {
+            if (activeConnections.has(socket.id)) {
+                io.to(data.target).emit('offer', {
+                    offer: data.offer,
+                    sender: socket.id
+                });
+            }
+        } catch (error) {
+            console.error('Error in offer:', error);
+            socket.emit('error', { message: 'Failed to send offer' });
         }
     });
 
     socket.on('answer', (data) => {
-        if (activeConnections.has(socket.id)) {
-            io.to(data.target).emit('answer', {
-                answer: data.answer,
-                sender: socket.id
-            });
+        try {
+            if (activeConnections.has(socket.id)) {
+                io.to(data.target).emit('answer', {
+                    answer: data.answer,
+                    sender: socket.id
+                });
+            }
+        } catch (error) {
+            console.error('Error in answer:', error);
+            socket.emit('error', { message: 'Failed to send answer' });
         }
     });
 
     socket.on('ice-candidate', (data) => {
-        if (activeConnections.has(socket.id)) {
-            io.to(data.target).emit('ice-candidate', {
-                candidate: data.candidate,
-                sender: socket.id
-            });
+        try {
+            if (activeConnections.has(socket.id)) {
+                io.to(data.target).emit('ice-candidate', {
+                    candidate: data.candidate,
+                    sender: socket.id
+                });
+            }
+        } catch (error) {
+            console.error('Error in ice-candidate:', error);
+            socket.emit('error', { message: 'Failed to send ICE candidate' });
         }
     });
 
     // Handle "Next" button click
     socket.on('next', () => {
-        const partnerId = activeConnections.get(socket.id);
-        if (partnerId) {
-            io.to(partnerId).emit('partner-left');
-            activeConnections.delete(partnerId);
-            activeConnections.delete(socket.id);
-            waitingUsers.set(socket.id, waitingUsers.get(socket.id) || 'video');
-            matchUsers();
+        try {
+            const partnerId = activeConnections.get(socket.id);
+            if (partnerId) {
+                io.to(partnerId).emit('partner-left');
+                activeConnections.delete(partnerId);
+                activeConnections.delete(socket.id);
+                waitingUsers.set(socket.id, waitingUsers.get(socket.id) || 'video');
+                matchUsers();
+            }
+        } catch (error) {
+            console.error('Error in next:', error);
+            socket.emit('error', { message: 'Failed to find next partner' });
         }
     });
 
     // Handle chat messages
     socket.on('chat-message', ({ target, message }) => {
-        const stats = userStats.get(socket.id);
-        if (stats && canSendMessage(socket.id)) {
-            stats.messagesSent++;
-            stats.lastMessageTime = Date.now();
-            io.to(target).emit('chat-message', { message });
+        try {
+            const stats = userStats.get(socket.id);
+            if (stats && canSendMessage(socket.id)) {
+                stats.messagesSent++;
+                stats.lastMessageTime = Date.now();
+                io.to(target).emit('chat-message', { message });
+            } else {
+                socket.emit('error', { message: 'Message rate limit exceeded' });
+            }
+        } catch (error) {
+            console.error('Error in chat-message:', error);
+            socket.emit('error', { message: 'Failed to send message' });
         }
     });
 
     // Handle reporting
     socket.on('report', ({ reportedId }) => {
-        if (canReport(socket.id)) {
-            const stats = userStats.get(socket.id);
-            stats.reports++;
-            stats.lastReportTime = Date.now();
+        try {
+            if (canReport(socket.id)) {
+                const stats = userStats.get(socket.id);
+                stats.reports++;
+                stats.lastReportTime = Date.now();
 
-            if (stats.reports >= MAX_REPORTS) {
-                rateLimits.set(socket.id, Date.now() + RATE_LIMIT_WINDOW);
+                if (stats.reports >= MAX_REPORTS) {
+                    rateLimits.set(socket.id, Date.now() + RATE_LIMIT_WINDOW);
+                }
+
+                io.to(reportedId).emit('reported');
+                console.log(`User ${socket.id} reported ${reportedId}`);
+            } else {
+                socket.emit('error', { message: 'Report limit exceeded' });
             }
-
-            // Notify the reported user
-            io.to(reportedId).emit('reported');
-            
-            // Log the report (in production, this would go to a database)
-            console.log(`User ${socket.id} reported ${reportedId}`);
+        } catch (error) {
+            console.error('Error in report:', error);
+            socket.emit('error', { message: 'Failed to process report' });
         }
     });
 
     // Handle disconnection
     socket.on('disconnect', () => {
-        const partnerId = activeConnections.get(socket.id);
-        if (partnerId) {
-            io.to(partnerId).emit('partner-left');
-            activeConnections.delete(partnerId);
-            activeConnections.delete(socket.id);
+        try {
+            const partnerId = activeConnections.get(socket.id);
+            if (partnerId) {
+                io.to(partnerId).emit('partner-left');
+                activeConnections.delete(partnerId);
+                activeConnections.delete(socket.id);
+            }
+            waitingUsers.delete(socket.id);
+            userStats.delete(socket.id);
+            rateLimits.delete(socket.id);
+        } catch (error) {
+            console.error('Error in disconnect:', error);
         }
-        waitingUsers.delete(socket.id);
-        userStats.delete(socket.id);
-        rateLimits.delete(socket.id);
     });
 });
 
 // Matchmaking function
 function matchUsers() {
-    const users = Array.from(waitingUsers.entries());
-    
-    // Group users by mode
-    const videoUsers = users.filter(([_, mode]) => mode === 'video');
-    const voiceUsers = users.filter(([_, mode]) => mode === 'voice');
-    const textUsers = users.filter(([_, mode]) => mode === 'text');
+    try {
+        const users = Array.from(waitingUsers.entries());
+        
+        // Group users by mode
+        const videoUsers = users.filter(([_, mode]) => mode === 'video');
+        const voiceUsers = users.filter(([_, mode]) => mode === 'voice');
+        const textUsers = users.filter(([_, mode]) => mode === 'text');
 
-    // Match users of the same mode
-    matchUserGroup(videoUsers);
-    matchUserGroup(voiceUsers);
-    matchUserGroup(textUsers);
+        // Match users of the same mode
+        matchUserGroup(videoUsers);
+        matchUserGroup(voiceUsers);
+        matchUserGroup(textUsers);
+    } catch (error) {
+        console.error('Error in matchUsers:', error);
+    }
 }
 
 function matchUserGroup(users) {
-    while (users.length >= 2) {
-        const [user1, user2] = users.splice(0, 2);
-        const [id1, mode1] = user1;
-        const [id2, mode2] = user2;
+    try {
+        while (users.length >= 2) {
+            const [user1, user2] = users.splice(0, 2);
+            const [id1, mode1] = user1;
+            const [id2, mode2] = user2;
 
-        waitingUsers.delete(id1);
-        waitingUsers.delete(id2);
+            waitingUsers.delete(id1);
+            waitingUsers.delete(id2);
 
-        activeConnections.set(id1, id2);
-        activeConnections.set(id2, id1);
+            activeConnections.set(id1, id2);
+            activeConnections.set(id2, id1);
 
-        io.to(id1).emit('matched', { partnerId: id2 });
-        io.to(id2).emit('matched', { partnerId: id1 });
+            io.to(id1).emit('matched', { partnerId: id2 });
+            io.to(id2).emit('matched', { partnerId: id1 });
+        }
+    } catch (error) {
+        console.error('Error in matchUserGroup:', error);
     }
 }
 
 // Rate limiting helper
 function isRateLimited(userId) {
-    const limitTime = rateLimits.get(userId);
-    if (limitTime && Date.now() < limitTime) {
-        return true;
+    try {
+        const limitTime = rateLimits.get(userId);
+        if (limitTime && Date.now() < limitTime) {
+            return true;
+        }
+        if (limitTime && Date.now() >= limitTime) {
+            rateLimits.delete(userId);
+        }
+        return false;
+    } catch (error) {
+        console.error('Error in isRateLimited:', error);
+        return true; // Default to rate limiting on error
     }
-    if (limitTime && Date.now() >= limitTime) {
-        rateLimits.delete(userId);
-    }
-    return false;
 }
 
 // Report limiting helper
 function canReport(userId) {
-    const stats = userStats.get(userId);
-    if (!stats) return false;
-    
-    if (stats.reports >= MAX_REPORTS) {
+    try {
+        const stats = userStats.get(userId);
+        if (!stats) return false;
+        
+        if (stats.reports >= MAX_REPORTS) {
+            return false;
+        }
+        
+        return true;
+    } catch (error) {
+        console.error('Error in canReport:', error);
         return false;
     }
-    
-    return true;
 }
 
 // Message rate limiting helper
 function canSendMessage(userId) {
-    const stats = userStats.get(userId);
-    if (!stats) return false;
+    try {
+        const stats = userStats.get(userId);
+        if (!stats) return false;
 
-    const now = Date.now();
-    if (now - stats.lastMessageTime > 60000) {
-        stats.messagesSent = 0;
-        stats.lastMessageTime = now;
+        const now = Date.now();
+        if (now - stats.lastMessageTime > 60000) {
+            stats.messagesSent = 0;
+            stats.lastMessageTime = now;
+        }
+
+        return stats.messagesSent < MAX_MESSAGES_PER_MINUTE;
+    } catch (error) {
+        console.error('Error in canSendMessage:', error);
+        return false;
     }
-
-    return stats.messagesSent < MAX_MESSAGES_PER_MINUTE;
 }
 
 // Health check endpoint for Vercel
 app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: 'ok' });
+    res.status(200).json({ 
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
 });
 
 // Export for testing
@@ -235,5 +311,6 @@ if (require.main === module) {
     const PORT = process.env.PORT || 3000;
     server.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
+        console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     });
 } 

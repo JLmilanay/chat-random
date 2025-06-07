@@ -3,70 +3,75 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A real-time video chat application that allows users to connect randomly with others for video, voice, or text chat.">
+    <meta name="theme-color" content="#2196f3">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Chatroulette Clone</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="icon" type="image/png" href="favicon.png">
 </head>
 <body>
     <div class="container">
-        <div class="mode-selector">
-            <button id="videoMode" class="mode-btn active">
-                <i class="fas fa-video"></i> Video
+        <header class="mode-selector" role="toolbar" aria-label="Communication mode selection">
+            <button id="videoMode" class="mode-btn active" aria-pressed="true" aria-label="Video chat mode">
+                <i class="fas fa-video" aria-hidden="true"></i> Video
             </button>
-            <button id="voiceMode" class="mode-btn">
-                <i class="fas fa-microphone"></i> Voice
+            <button id="voiceMode" class="mode-btn" aria-pressed="false" aria-label="Voice chat mode">
+                <i class="fas fa-microphone" aria-hidden="true"></i> Voice
             </button>
-            <button id="textMode" class="mode-btn">
-                <i class="fas fa-comments"></i> Text
+            <button id="textMode" class="mode-btn" aria-pressed="false" aria-label="Text chat mode">
+                <i class="fas fa-comments" aria-hidden="true"></i> Text
             </button>
-        </div>
+        </header>
 
-        <div class="main-content">
-            <div class="video-container">
+        <main class="main-content">
+            <section class="video-container" aria-label="Video chat area">
                 <div class="video-wrapper">
-                    <video id="localVideo" autoplay muted playsinline></video>
+                    <video id="localVideo" autoplay muted playsinline aria-label="Your video"></video>
                     <div class="video-overlay">
                         <span class="video-label">You</span>
-                        <button id="toggleVideo" class="control-btn">
-                            <i class="fas fa-video"></i>
+                        <button id="toggleVideo" class="control-btn" aria-label="Toggle video" disabled>
+                            <i class="fas fa-video" aria-hidden="true"></i>
                         </button>
-                        <button id="toggleAudio" class="control-btn">
-                            <i class="fas fa-microphone"></i>
+                        <button id="toggleAudio" class="control-btn" aria-label="Toggle audio" disabled>
+                            <i class="fas fa-microphone" aria-hidden="true"></i>
                         </button>
                     </div>
                 </div>
                 <div class="video-wrapper">
-                    <video id="remoteVideo" autoplay playsinline></video>
+                    <video id="remoteVideo" autoplay playsinline aria-label="Partner's video"></video>
                     <div class="video-overlay">
                         <span class="video-label">Partner</span>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="chat-container">
-                <div class="chat-messages" id="chatMessages"></div>
+            <section class="chat-container" aria-label="Chat area">
+                <div class="chat-messages" id="chatMessages" role="log" aria-label="Chat messages"></div>
                 <div class="chat-input-container">
-                    <input type="text" id="chatInput" placeholder="Type a message..." disabled>
-                    <button id="sendMessage" class="btn" disabled>
-                        <i class="fas fa-paper-plane"></i>
+                    <input type="text" id="chatInput" placeholder="Type a message..." disabled aria-label="Chat message input">
+                    <button id="sendMessage" class="btn" disabled aria-label="Send message">
+                        <i class="fas fa-paper-plane" aria-hidden="true"></i>
                     </button>
                 </div>
-            </div>
-        </div>
+            </section>
+        </main>
         
-        <div class="controls">
-            <button id="startButton" class="btn">
-                <i class="fas fa-play"></i> Start Chat
+        <footer class="controls" role="toolbar" aria-label="Chat controls">
+            <button id="startButton" class="btn" aria-label="Start chat">
+                <i class="fas fa-play" aria-hidden="true"></i> Start Chat
             </button>
-            <button id="nextButton" class="btn" disabled>
-                <i class="fas fa-random"></i> Next
+            <button id="nextButton" class="btn" disabled aria-label="Find next partner">
+                <i class="fas fa-random" aria-hidden="true"></i> Next
             </button>
-            <button id="reportButton" class="btn danger" disabled>
-                <i class="fas fa-flag"></i> Report
+            <button id="reportButton" class="btn danger" disabled aria-label="Report current partner">
+                <i class="fas fa-flag" aria-hidden="true"></i> Report
             </button>
-        </div>
+        </footer>
 
-        <div class="status">
+        <div class="status" role="status" aria-live="polite">
             <p id="statusMessage">Click "Start Chat" to begin</p>
         </div>
     </div>

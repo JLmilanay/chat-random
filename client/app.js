@@ -5,7 +5,12 @@ const SOCKET_URL = window.location.hostname === 'localhost'
 
 const socket = io(SOCKET_URL, {
     transports: ['websocket', 'polling'],
-    path: '/socket.io'
+    path: '/socket.io',
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000
 });
 
 const localVideo = document.getElementById('localVideo');
@@ -32,16 +37,46 @@ const MAX_RECONNECT_ATTEMPTS = 3;
 let currentMode = 'video';
 let isVideoEnabled = true;
 let isAudioEnabled = true;
+let isReconnecting = false;
 
 // WebRTC configuration with multiple STUN servers
 const configuration = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
     ],
     iceCandidatePoolSize: 10
 };
+
+// Socket.IO event handlers
+socket.on('connect', () => {
+    console.log('Connected to server');
+    statusMessage.textContent = 'Connected to server';
+    if (isReconnecting) {
+        isReconnecting = false;
+        initializeWebRTC();
+    }
+});
+
+socket.on('connect_error', (error) => {
+    console.error('Connection error:', error);
+    statusMessage.textContent = 'Connection error. Retrying...';
+    showError('Connection Error', 'Failed to connect to server. Retrying...');
+});
+
+socket.on('disconnect', (reason) => {
+    console.log('Disconnected:', reason);
+    statusMessage.textContent = 'Disconnected from server. Reconnecting...';
+    isReconnecting = true;
+});
+
+socket.on('error', ({ message }) => {
+    console.error('Server error:', message);
+    showError('Server Error', message);
+});
 
 // Initialize WebRTC
 async function initializeWebRTC() {
@@ -49,7 +84,8 @@ async function initializeWebRTC() {
         const constraints = {
             audio: {
                 echoCancellation: true,
-                noiseSuppression: true
+                noiseSuppression: true,
+                autoGainControl: true
             }
         };
 
@@ -57,7 +93,8 @@ async function initializeWebRTC() {
             constraints.video = currentMode === 'video' ? {
                 width: { ideal: 1280 },
                 height: { ideal: 720 },
-                facingMode: 'user'
+                facingMode: 'user',
+                frameRate: { ideal: 30 }
             } : false;
         }
 
@@ -68,17 +105,14 @@ async function initializeWebRTC() {
             updateVideoVisibility();
         }
         
-        startButton.disabled = true;
-        nextButton.disabled = false;
-        reportButton.disabled = false;
-        chatInput.disabled = false;
-        sendMessage.disabled = false;
+        enableControls();
         statusMessage.textContent = 'Waiting for a partner...';
         socket.emit('join', { mode: currentMode });
     } catch (error) {
         console.error('Error accessing media devices:', error);
         statusMessage.textContent = 'Error accessing camera and microphone. Please check permissions.';
         showError('Camera/Microphone Error', 'Please ensure you have granted camera and microphone permissions.');
+        disableControls();
     }
 }
 
@@ -130,6 +164,22 @@ function createPeerConnection() {
             case 'connected':
                 statusMessage.textContent = 'Connected!';
                 connectionAttempts = 0;
+                break;
+            case 'disconnected':
+            case 'failed':
+                handleConnectionFailure();
+                break;
+            case 'closed':
+                console.log('Peer connection closed');
+                break;
+        }
+    };
+
+    // Handle ICE connection state changes
+    peerConnection.oniceconnectionstatechange = () => {
+        switch(peerConnection.iceConnectionState) {
+            case 'connected':
+                console.log('ICE connected');
                 break;
             case 'disconnected':
             case 'failed':
@@ -206,6 +256,27 @@ function addMessage(message, isSent = false) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+// Enable/disable controls
+function enableControls() {
+    startButton.disabled = true;
+    nextButton.disabled = false;
+    reportButton.disabled = false;
+    chatInput.disabled = false;
+    sendMessage.disabled = false;
+    toggleVideo.disabled = false;
+    toggleAudio.disabled = false;
+}
+
+function disableControls() {
+    startButton.disabled = false;
+    nextButton.disabled = true;
+    reportButton.disabled = true;
+    chatInput.disabled = true;
+    sendMessage.disabled = true;
+    toggleVideo.disabled = true;
+    toggleAudio.disabled = true;
+}
+
 // Handle WebRTC signaling
 socket.on('offer', async ({ offer, sender }) => {
     if (isConnecting) return;
@@ -241,7 +312,9 @@ socket.on('answer', async ({ answer }) => {
 
 socket.on('ice-candidate', async ({ candidate }) => {
     try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        if (peerConnection && peerConnection.remoteDescription) {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        }
     } catch (error) {
         console.error('Error adding ICE candidate:', error);
     }
@@ -250,19 +323,12 @@ socket.on('ice-candidate', async ({ candidate }) => {
 // Handle matching
 socket.on('matched', ({ partnerId }) => {
     currentPartnerId = partnerId;
-    statusMessage.textContent = 'Connected!';
-    createPeerConnection();
+    statusMessage.textContent = 'Partner found!';
 });
 
-// Handle partner leaving
 socket.on('partner-left', () => {
-    statusMessage.textContent = 'Partner left. Waiting for new connection...';
+    statusMessage.textContent = 'Partner left. Finding new partner...';
     resetConnection();
-});
-
-// Handle being reported
-socket.on('reported', () => {
-    showError('Warning', 'You have been reported. Please be respectful of other users.');
 });
 
 // Handle chat messages
@@ -270,37 +336,26 @@ socket.on('chat-message', ({ message }) => {
     addMessage(message, false);
 });
 
-// Button event listeners
+// Event listeners
 startButton.addEventListener('click', initializeWebRTC);
 
 nextButton.addEventListener('click', () => {
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-    if (currentMode !== 'text') {
-        remoteVideo.srcObject = null;
-    }
-    statusMessage.textContent = 'Looking for a new partner...';
     socket.emit('next');
+    statusMessage.textContent = 'Finding new partner...';
 });
 
 reportButton.addEventListener('click', () => {
     if (currentPartnerId) {
         socket.emit('report', { reportedId: currentPartnerId });
         statusMessage.textContent = 'User reported. Finding new partner...';
-        socket.emit('next');
+        resetConnection();
     }
 });
 
-// Chat input handling
 sendMessage.addEventListener('click', () => {
     const message = chatInput.value.trim();
     if (message && currentPartnerId) {
-        socket.emit('chat-message', {
-            target: currentPartnerId,
-            message: message
-        });
+        socket.emit('chat-message', { target: currentPartnerId, message });
         addMessage(message, true);
         chatInput.value = '';
     }
@@ -312,15 +367,13 @@ chatInput.addEventListener('keypress', (e) => {
     }
 });
 
-// Media control buttons
 toggleVideo.addEventListener('click', () => {
     if (localStream) {
         const videoTrack = localStream.getVideoTracks()[0];
         if (videoTrack) {
             isVideoEnabled = !isVideoEnabled;
             videoTrack.enabled = isVideoEnabled;
-            toggleVideo.innerHTML = `<i class="fas fa-video${isVideoEnabled ? '' : '-slash'}"></i>`;
-            toggleVideo.classList.toggle('muted', !isVideoEnabled);
+            toggleVideo.textContent = isVideoEnabled ? 'Disable Video' : 'Enable Video';
         }
     }
 });
@@ -331,53 +384,32 @@ toggleAudio.addEventListener('click', () => {
         if (audioTrack) {
             isAudioEnabled = !isAudioEnabled;
             audioTrack.enabled = isAudioEnabled;
-            toggleAudio.innerHTML = `<i class="fas fa-microphone${isAudioEnabled ? '' : '-slash'}"></i>`;
-            toggleAudio.classList.toggle('muted', !isAudioEnabled);
+            toggleAudio.textContent = isAudioEnabled ? 'Mute' : 'Unmute';
         }
     }
 });
 
 // Mode selection
 function setMode(mode) {
+    if (mode === currentMode) return;
+    
     currentMode = mode;
     videoMode.classList.toggle('active', mode === 'video');
     voiceMode.classList.toggle('active', mode === 'voice');
     textMode.classList.toggle('active', mode === 'text');
+    
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+    }
+    
     updateVideoVisibility();
+    resetConnection();
 }
 
 videoMode.addEventListener('click', () => setMode('video'));
 voiceMode.addEventListener('click', () => setMode('voice'));
 textMode.addEventListener('click', () => setMode('text'));
 
-// Handle connection errors
-socket.on('connect_error', (error) => {
-    console.error('Connection error:', error);
-    statusMessage.textContent = 'Connection error. Please try again.';
-    showError('Connection Error', 'Failed to connect to the server. Please refresh the page.');
-});
-
-// Handle reconnection
-socket.on('reconnect', (attemptNumber) => {
-    console.log('Reconnected after', attemptNumber, 'attempts');
-    statusMessage.textContent = 'Reconnected!';
-});
-
-// Handle reconnection attempts
-socket.on('reconnect_attempt', (attemptNumber) => {
-    console.log('Reconnection attempt', attemptNumber);
-    statusMessage.textContent = `Reconnecting... (Attempt ${attemptNumber})`;
-});
-
-// Handle reconnection errors
-socket.on('reconnect_error', (error) => {
-    console.error('Reconnection error:', error);
-    statusMessage.textContent = 'Reconnection failed. Please refresh the page.';
-});
-
-// Handle reconnection failures
-socket.on('reconnect_failed', () => {
-    console.error('Reconnection failed');
-    statusMessage.textContent = 'Connection lost. Please refresh the page.';
-    showError('Connection Error', 'Failed to reconnect to the server. Please refresh the page.');
-}); 
+// Initialize
+disableControls();
+setMode('video'); 
